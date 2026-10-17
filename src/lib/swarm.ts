@@ -5,6 +5,9 @@ export type AgentInfo = {
   name: string;
   model: string;
   online: boolean;
+  temperature?: number;
+  maxTokens?: number;
+  instructions?: string;
 };
 
 export type ChatMessage = {

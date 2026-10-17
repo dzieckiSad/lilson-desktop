@@ -14,6 +14,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
+import { AgentSheet } from "@/components/lilson/AgentSheet";
+import { AutomationView, defaultAutomations, type Automation } from "@/components/lilson/AutomationView";
+import { SettingsView, defaultPrefs, type Prefs } from "@/components/lilson/SettingsView";
+import { STORAGE_KEY, loadState, matchShortcut } from "@/lib/persist";
 import {
   ALL, defaultAgents, initialMessages, nowTime, pickResponders, replyFor, type AgentInfo, type ChatMessage,
 } from "@/lib/swarm";
@@ -60,9 +64,10 @@ type Notif = { id: number; title: string; body: string; read: boolean };
 function TopBar(p: {
   onMenu: () => void; onNew: () => void; agents: AgentInfo[]; messages: ChatMessage[];
   onPickAgent: (id: string) => void; notifs: Notif[]; setNotifs: (n: Notif[]) => void; onSettings: () => void;
+  searchOpen: boolean; setSearchOpen: (o: boolean) => void; notifOpen: boolean; setNotifOpen: (o: boolean) => void; userName: string; email: string;
 }) {
   const [q, setQ] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const { searchOpen, setSearchOpen } = p;
   const unread = p.notifs.filter((n) => !n.read).length;
   const term = q.trim().toLowerCase();
   const agentHits = term ? p.agents.filter((a) => (a.name + a.model).toLowerCase().includes(term)) : p.agents;
@@ -78,7 +83,7 @@ function TopBar(p: {
       </div>
       <div className="ml-auto flex items-center gap-1">
         <Popover open={searchOpen} onOpenChange={setSearchOpen}>
-          <PopoverTrigger asChild><button aria-label="Search" className={iconBtn}><Search className="size-5" /></button></PopoverTrigger>
+          <PopoverTrigger asChild><button aria-label="Search (Ctrl+K)" title="Search (Ctrl/⌘+K)" className={iconBtn}><Search className="size-5" /></button></PopoverTrigger>
           <PopoverContent align="end" className={`w-80 p-2 ${menuCls}`}>
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search agents and messages…"
               className="w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm outline-none focus:border-accent/60" />
@@ -99,9 +104,9 @@ function TopBar(p: {
           </PopoverContent>
         </Popover>
 
-        <Popover>
+        <Popover open={p.notifOpen} onOpenChange={p.setNotifOpen}>
           <PopoverTrigger asChild>
-            <button aria-label="Notifications" className={iconBtn}><Bell className="size-5" />
+            <button aria-label="Notifications" title="Notifications (Ctrl/⌘+J)" className={iconBtn}><Bell className="size-5" />
               {unread > 0 && <span className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{unread}</span>}
             </button>
           </PopoverTrigger>
@@ -128,14 +133,14 @@ function TopBar(p: {
           <DropdownMenuTrigger asChild>
             <button className="glass ml-1 flex items-center gap-3 py-1.5 pl-1.5 pr-1.5 md:pr-3">
               <div className="grid size-8 place-items-center rounded-full bg-accent text-sm font-semibold text-accent-foreground">AM</div>
-              <div className="hidden text-left leading-tight md:block"><div className="text-sm font-medium">Alex Morgan</div><div className="text-xs text-muted-foreground">Admin</div></div>
+              <div className="hidden text-left leading-tight md:block"><div className="text-sm font-medium">{p.userName}</div><div className="text-xs text-muted-foreground">Admin</div></div>
               <ChevronDown className="hidden size-4 text-muted-foreground md:block" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={`w-56 ${menuCls}`}>
-            <DropdownMenuLabel><div>Alex Morgan</div><div className="text-xs font-normal text-muted-foreground">alex@lilson.app</div></DropdownMenuLabel>
+            <DropdownMenuLabel><div>{p.userName}</div><div className="text-xs font-normal text-muted-foreground">{p.email}</div></DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => toast("Profile opened")}><User />Profile</DropdownMenuItem>
+            <DropdownMenuItem onSelect={p.onSettings}><User />Profile</DropdownMenuItem>
             <DropdownMenuItem onSelect={p.onSettings}><Settings />Settings</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => toast("Billing: Pro plan · renews Nov 1")}><CreditCard />Billing</DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -154,7 +159,7 @@ function TopBar(p: {
 /* ---------------- Agents ---------------- */
 function AgentsPanel(p: {
   agents: AgentInfo[]; active: string; onSelect: (id: string) => void; onToggle: (id: string) => void;
-  onRemove: (id: string) => void; onAdd: () => void;
+  onRemove: (id: string) => void; onAdd: () => void; onDetails: (id: string) => void;
 }) {
   const online = p.agents.filter((a) => a.online).length;
   return (
@@ -177,6 +182,7 @@ function AgentsPanel(p: {
             <DropdownMenu>
               <DropdownMenuTrigger asChild><button aria-label={`${a.name} options`} className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"><MoreVertical className="size-4" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className={menuCls}>
+                <DropdownMenuItem onSelect={() => p.onDetails(a.id)}><Settings />Details & config</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => p.onSelect(a.id)}><AtSign />Message {a.name}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => p.onToggle(a.id)}>{a.online ? <><Pause />Pause agent</> : <><Play />Resume agent</>}</DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -291,7 +297,7 @@ function Chat(p: {
       </div>
       <div className="p-3 md:p-4">
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="flex items-center gap-2 rounded-2xl border border-border bg-background/40 p-2 pl-4 focus-within:border-accent/60">
-          <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} placeholder={p.target === ALL ? "Ask the swarm anything…" : `Message ${targetName}…`}
+          <input data-chat-input ref={inputRef} value={text} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} onChange={(e) => setText(e.target.value)} placeholder={p.target === ALL ? "Ask the swarm anything…  ( / to focus )" : `Message ${targetName}…`}
             className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button type="button" className="flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-sm hover:bg-secondary">{targetName} <ChevronDown className="size-4" /></button></DropdownMenuTrigger>
