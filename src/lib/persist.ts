@@ -11,7 +11,10 @@ export function loadState<T>(raw: string | null, fallback: T): T {
 }
 
 /** Keyboard shortcut matcher: "mod" = Ctrl on Windows/Linux, Cmd on macOS. */
-export function matchShortcut(e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }, combo: string) {
+export function matchShortcut(
+  e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
+  combo: string,
+) {
   const parts = combo.toLowerCase().split("+");
   const key = parts.pop()!;
   const mod = parts.includes("mod");
@@ -29,4 +32,8 @@ export const shortcuts = [
 ];
 
 export const prettyCombo = (c: string) =>
-  c.split("+").map((p) => (p === "mod" ? "Ctrl/⌘" : p === "shift" ? "Shift" : p === "enter" ? "Enter" : p.toUpperCase()));
+  c
+    .split("+")
+    .map((p) =>
+      p === "mod" ? "Ctrl/⌘" : p === "shift" ? "Shift" : p === "enter" ? "Enter" : p.toUpperCase(),
+    );

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { loadState, matchShortcut } from "@/lib/persist";
 
-const ev = (key: string, o: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, ...o });
+const ev = (
+  key: string,
+  o: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {},
+) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, ...o });
 
 describe("chat history restore", () => {
   it("restores saved messages", () => {
-    expect(loadState(JSON.stringify({ messages: [1, 2] }), { messages: [] as number[] }).messages).toEqual([1, 2]);
+    expect(
+      loadState(JSON.stringify({ messages: [1, 2] }), { messages: [] as number[] }).messages,
+    ).toEqual([1, 2]);
   });
   it("falls back when nothing or broken data is saved", () => {
     expect(loadState(null, { messages: [9] }).messages).toEqual([9]);

@@ -75,8 +75,32 @@ export function nowTime() {
 }
 
 export const initialMessages: ChatMessage[] = [
-  { id: "m1", author: "claude", lead: true, time: "10:24 AM", text: "I've analyzed the requirements and drafted a high-level architecture. The plan focuses on modularity, scalability, and secure data flow. Key components include an event-driven core, isolated agent runtimes, and a shared memory layer.", attachment: { name: "architecture_plan.md", size: "12.4 KB" } },
-  { id: "m2", author: "you", time: "10:25 AM", text: "Looks solid. Let's validate the cost estimates and get Gemini's perspective on the data synchronization strategy." },
-  { id: "m3", author: "gemini", time: "10:26 AM", text: "The sync strategy looks good. I recommend using CRDTs for conflict resolution and delta compression for bandwidth efficiency. I can run a quick simulation to validate.", progress: 65 },
-  { id: "m4", author: "codex", time: "10:27 AM", text: "Simulation complete. With 6 agents and 1K events/sec, projected cost is $0.23/hour. Full report ready.", attachment: { name: "simulation_report.json", size: "8.7 KB" } },
+  {
+    id: "m1",
+    author: "claude",
+    lead: true,
+    time: "10:24 AM",
+    text: "I've analyzed the requirements and drafted a high-level architecture. The plan focuses on modularity, scalability, and secure data flow. Key components include an event-driven core, isolated agent runtimes, and a shared memory layer.",
+    attachment: { name: "architecture_plan.md", size: "12.4 KB" },
+  },
+  {
+    id: "m2",
+    author: "you",
+    time: "10:25 AM",
+    text: "Looks solid. Let's validate the cost estimates and get Gemini's perspective on the data synchronization strategy.",
+  },
+  {
+    id: "m3",
+    author: "gemini",
+    time: "10:26 AM",
+    text: "The sync strategy looks good. I recommend using CRDTs for conflict resolution and delta compression for bandwidth efficiency. I can run a quick simulation to validate.",
+    progress: 65,
+  },
+  {
+    id: "m4",
+    author: "codex",
+    time: "10:27 AM",
+    text: "Simulation complete. With 6 agents and 1K events/sec, projected cost is $0.23/hour. Full report ready.",
+    attachment: { name: "simulation_report.json", size: "8.7 KB" },
+  },
 ];
