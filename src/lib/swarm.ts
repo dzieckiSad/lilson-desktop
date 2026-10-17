@@ -64,7 +64,7 @@ export function pickResponders(agents: AgentInfo[], target: string): AgentInfo[]
 
 export function replyFor(agent: AgentInfo, turn: number): string {
   const list = replies[agent.id] ?? [`${agent.name} here — acknowledged, working on it.`];
-  return list[turn % list.length];
+  return list[turn % list.length] ?? list[0] ?? "";
 }
 
 export function nowTime() {

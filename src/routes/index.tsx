@@ -203,7 +203,7 @@ function downloadFile(name: string) {
   toast.success(`Downloaded ${name}`);
 }
 
-function Bubble({ m, agent }: { m: ChatMessage; agent?: AgentInfo }) {
+function Bubble({ m, agent }: { m: ChatMessage; agent?: AgentInfo | undefined }) {
   if (m.author === "you") {
     return (
       <div id={m.id} className="flex justify-end gap-3">
