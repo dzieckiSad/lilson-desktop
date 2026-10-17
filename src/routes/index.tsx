@@ -403,38 +403,68 @@ function StatusBar({ tasks }: { tasks: number }) {
 
 /* ---------------- Page ---------------- */
 type Tab = "chat" | "agents" | "widgets" | "automation" | "settings";
+type View = "dashboard" | "automation" | "settings";
 const stamp = () => new Date().toLocaleTimeString([], { hour12: false });
+const initialLogs = [
+  "10:27:14 [Claude] Analysis complete", "10:27:14 [Gemini] Simulation started",
+  "10:27:15 [Codex] Results generated", "10:27:16 [Swarm] Checkpoint saved",
+];
+const initialNotifs: Notif[] = [
+  { id: 1, title: "Simulation finished", body: "Codex attached simulation_report.json", read: false },
+  { id: 2, title: "Approval needed", body: "Claude requests deploy to staging", read: false },
+  { id: 3, title: "Cost alert", body: "Session spend passed $1.00 / hour", read: true },
+];
+const defaults = { agents: defaultAgents, messages: initialMessages, notifs: initialNotifs, automations: defaultAutomations, prefs: defaultPrefs };
+
+function focusChatInput() {
+  const el = Array.from(document.querySelectorAll<HTMLInputElement>("[data-chat-input]")).find((x) => x.offsetParent !== null);
+  el?.focus();
+}
 
 function Index() {
   const [tab, setTab] = useState<Tab>("chat");
+  const [view, setView] = useState<View>("dashboard");
   const [drawer, setDrawer] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>(defaultAgents);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
+  const [automations, setAutomations] = useState<Automation[]>(defaultAutomations);
+  const [prefs, setPrefs] = useState<Prefs>(defaultPrefs);
+  const [loaded, setLoaded] = useState(false);
   const [typing, setTyping] = useState<string[]>([]);
   const [target, setTarget] = useState<string>(ALL);
   const [activeAgent, setActiveAgent] = useState("claude");
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", model: "" });
   const [tokens, setTokens] = useState(18700);
   const [tasks, setTasks] = useState(12);
   const turn = useRef(0);
-  const [logs, setLogs] = useState<string[]>([
-    "10:27:14 [Claude] Analysis complete", "10:27:14 [Gemini] Simulation started",
-    "10:27:15 [Codex] Results generated", "10:27:16 [Swarm] Checkpoint saved",
-  ]);
-  const [notifs, setNotifs] = useState<Notif[]>([
-    { id: 1, title: "Simulation finished", body: "Codex attached simulation_report.json", read: false },
-    { id: 2, title: "Approval needed", body: "Claude requests deploy to staging", read: false },
-    { id: 3, title: "Cost alert", body: "Session spend passed $1.00 / hour", read: true },
-  ]);
+  const [logs, setLogs] = useState<string[]>(initialLogs);
   const log = (l: string) => setLogs((x) => [...x.slice(-40), `${stamp()} ${l}`]);
 
-  // live gauges + simulation progress
+  // restore saved state after mount
+  useEffect(() => {
+    const st = loadState(localStorage.getItem(STORAGE_KEY), defaults);
+    setAgents(st.agents); setNotifs(st.notifs); setAutomations(st.automations);
+    setPrefs({ ...defaultPrefs, ...st.prefs });
+    if (st.prefs.saveHistory !== false) setMessages(st.messages.map((m) => (m.progress !== undefined ? { ...m, progress: 100 } : m)));
+    const t = st.prefs.defaultTarget;
+    if (t && (t === ALL || st.agents.some((a) => a.id === t && a.online))) setTarget(t);
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ agents, notifs, automations, prefs, messages: prefs.saveHistory ? messages : [] }));
+  }, [loaded, agents, notifs, automations, prefs, messages]);
+
   useEffect(() => {
     const t = setInterval(() => {
       setTokens((v) => Math.max(12000, Math.round(v + (Math.random() - 0.5) * 900)));
-      setMessages((ms) => ms.map((m) => (m.progress !== undefined && m.progress < 100 ? { ...m, progress: Math.min(100, m.progress + 5) } : m)));
+      setMessages((ms) => (ms.some((m) => m.progress !== undefined && m.progress < 100)
+        ? ms.map((m) => (m.progress !== undefined && m.progress < 100 ? { ...m, progress: Math.min(100, m.progress + 5) } : m)) : ms));
     }, 1500);
     return () => clearInterval(t);
   }, []);
@@ -452,7 +482,10 @@ function Index() {
         setTyping((t) => t.filter((x) => x !== a.id));
         setMessages((m) => [...m, { id: crypto.randomUUID(), author: a.id, text: replyFor(a, myTurn), time: nowTime(), lead: a.id === "claude" && i === 0 }]);
         log(`[${a.name}] Response delivered`);
-        if (i === responders.length - 1) setTasks((t) => Math.max(0, t - 1));
+        if (i === responders.length - 1) {
+          setTasks((t) => Math.max(0, t - 1));
+          if (prefs.notifyReplies) setNotifs((n) => [{ id: Date.now(), title: `${a.name} replied`, body: text.slice(0, 60), read: false }, ...n].slice(0, 20));
+        }
       }, 1600 + i * 1400);
     });
   };
@@ -461,13 +494,21 @@ function Index() {
     setActiveAgent(id);
     const a = agents.find((x) => x.id === id);
     if (a?.online) setTarget(id); else toast(`${a?.name} is paused`);
-    setTab("chat"); setDrawer(false);
+    setTab("chat"); setView("dashboard"); setDrawer(false);
   };
   const toggleAgent = (id: string) => {
-    setAgents((as) => as.map((a) => (a.id === id ? { ...a, online: !a.online } : a)));
     const a = agents.find((x) => x.id === id)!;
+    setAgents((as) => as.map((x) => (x.id === id ? { ...x, online: !x.online } : x)));
     log(`[Swarm] ${a.name} ${a.online ? "paused" : "resumed"}`);
     if (a.online && target === id) setTarget(ALL);
+  };
+  const saveAgent = (u: AgentInfo) => {
+    const prev = agents.find((x) => x.id === u.id);
+    setAgents((as) => as.map((x) => (x.id === u.id ? u : x)));
+    if (prev && prev.online !== u.online) log(`[Swarm] ${u.name} ${u.online ? "resumed" : "paused"}`);
+    if (prev && prev.model !== u.model) log(`[Swarm] ${u.name} switched to ${u.model}`);
+    if (!u.online && target === u.id) setTarget(ALL);
+    setDetailsId(null); toast.success(`${u.name} updated`);
   };
   const removeAgent = (id: string) => {
     const a = agents.find((x) => x.id === id)!;
@@ -484,13 +525,34 @@ function Index() {
     setNewAgent({ name: "", model: "" }); setAddOpen(false);
   };
   const newSession = () => {
-    setMessages([]); setTyping([]); setTarget(ALL); setTab("chat");
+    setMessages([]); setTyping([]); setTarget(ALL); setTab("chat"); setView("dashboard");
     log("[Swarm] New session started"); toast.success("New session started");
   };
+  const goView = (v: View) => { setView(v); setTab(v === "dashboard" ? "chat" : v); setDrawer(false); };
 
-  const agentsPanel = <AgentsPanel agents={agents} active={activeAgent} onSelect={selectAgent} onToggle={toggleAgent} onRemove={removeAgent} onAdd={() => setAddOpen(true)} />;
+  // keyboard shortcuts
+  const newSessionRef = useRef(newSession); newSessionRef.current = newSession;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typingInField = /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement)?.tagName ?? "");
+      if (matchShortcut(e, "mod+k")) { e.preventDefault(); setNotifOpen(false); setSearchOpen(true); }
+      else if (matchShortcut(e, "mod+j")) { e.preventDefault(); setSearchOpen(false); setNotifOpen((o) => !o); }
+      else if (matchShortcut(e, "mod+shift+o")) { e.preventDefault(); newSessionRef.current(); }
+      else if (e.key === "/" && !typingInField) { e.preventDefault(); setView("dashboard"); setTab("chat"); setTimeout(focusChatInput, 50); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const agentsPanel = <AgentsPanel agents={agents} active={activeAgent} onSelect={selectAgent} onToggle={toggleAgent} onRemove={removeAgent} onAdd={() => setAddOpen(true)} onDetails={setDetailsId} />;
   const chat = <Chat agents={agents} messages={messages} typing={typing} target={target} setTarget={setTarget} onSend={send} />;
   const widgets = <Widgets agents={agents} logs={logs} tokens={tokens} onClearLogs={() => setLogs([])} />;
+  const automation = <AutomationView items={automations} setItems={setAutomations} agents={agents}
+    onRun={(a) => { log(`[Swarm] Workflow "${a.name}" started`); toast.success(`Running “${a.name}”`); }} />;
+  const settings = <SettingsView prefs={prefs} setPrefs={setPrefs} agents={agents} onToggleAgent={toggleAgent} onOpenAgent={setDetailsId}
+    onClearHistory={() => { setMessages([]); toast.success("Chat history cleared"); }}
+    onReset={() => { localStorage.removeItem(STORAGE_KEY); setAgents(defaultAgents); setMessages(initialMessages); setNotifs(initialNotifs); setAutomations(defaultAutomations); setPrefs(defaultPrefs); setTarget(ALL); toast.success("Everything reset"); }} />;
+
   const nav: [Tab, string, ReactNode][] = [
     ["chat", "Chat", <MessageCircle key="1" className="size-5" />],
     ["agents", "Agents", <Bot key="2" className="size-5" />],
@@ -498,26 +560,37 @@ function Index() {
     ["automation", "Automation", <Workflow key="4" className="size-5" />],
     ["settings", "Settings", <Settings key="5" className="size-5" />],
   ];
+  const views: [View, string, ReactNode][] = [
+    ["dashboard", "Swarm Chat", <MessageCircle key="a" className="size-4" />],
+    ["automation", "Automation", <Workflow key="b" className="size-4" />],
+    ["settings", "Settings", <Settings key="c" className="size-4" />],
+  ];
 
   return (
     <div className="flex h-dvh flex-col">
       <Toaster theme="dark" position="top-center" />
       <TopBar onMenu={() => setDrawer(true)} onNew={newSession} agents={agents} messages={messages} onPickAgent={selectAgent}
-        notifs={notifs} setNotifs={setNotifs} onSettings={() => setSettingsOpen(true)} />
+        notifs={notifs} setNotifs={setNotifs} onSettings={() => goView("settings")}
+        searchOpen={searchOpen} setSearchOpen={setSearchOpen} notifOpen={notifOpen} setNotifOpen={setNotifOpen} userName={prefs.name} email={prefs.email} />
+
+      <div className="hidden gap-1 px-4 pb-3 lg:flex">
+        {views.map(([v, l, i]) => (
+          <button key={v} onClick={() => goView(v)} className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm transition ${view === v ? "glow border border-accent/50 bg-accent/10 text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{i}{l}</button>
+        ))}
+      </div>
 
       <main className="hidden min-h-0 flex-1 gap-3 px-4 lg:grid lg:grid-cols-[300px_1fr_340px]">
-        {agentsPanel}{chat}{widgets}
+        {agentsPanel}
+        {view === "dashboard" ? chat : view === "automation" ? automation : settings}
+        {widgets}
       </main>
 
       <main className="min-h-0 flex-1 px-3 pb-2 lg:hidden">
         {tab === "chat" && chat}
         {tab === "agents" && agentsPanel}
         {tab === "widgets" && widgets}
-        {(tab === "automation" || tab === "settings") && (
-          <div className="glass grid h-full place-items-center p-6 text-center text-muted-foreground">
-            <div><div className="mx-auto w-fit"><CatLogo size={72} /></div><p className="mt-4 capitalize">{tab} — coming soon</p></div>
-          </div>
-        )}
+        {tab === "automation" && automation}
+        {tab === "settings" && settings}
       </main>
       <StatusBar tasks={tasks} />
       <nav className="glass mx-3 mb-3 grid grid-cols-5 lg:hidden">
@@ -528,13 +601,20 @@ function Index() {
 
       {drawer && (
         <div className="fixed inset-0 z-40 flex bg-background/60 backdrop-blur-sm" onClick={() => setDrawer(false)}>
-          <div className="h-full w-80 max-w-[85vw] p-3" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-full w-80 max-w-[85vw] flex-col p-3" onClick={(e) => e.stopPropagation()}>
             <div className="mb-2 flex items-center gap-3 px-1"><CatLogo size={36} /><span className="font-semibold">Lilson Desktop</span>
               <button aria-label="Close" className="ml-auto" onClick={() => setDrawer(false)}><X className="size-5" /></button></div>
-            <div className="h-[calc(100%-3rem)]">{agentsPanel}</div>
+            <div className="glass mb-2 p-1.5">
+              {views.map(([v, l, i]) => (
+                <button key={v} onClick={() => goView(v)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm ${view === v ? "bg-accent/15 text-foreground" : "text-muted-foreground hover:bg-secondary"}`}>{i}{l}</button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1">{agentsPanel}</div>
           </div>
         </div>
       )}
+
+      <AgentSheet agent={agents.find((a) => a.id === detailsId) ?? null} onClose={() => setDetailsId(null)} onSave={saveAgent} />
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className={menuCls}>
@@ -546,21 +626,6 @@ function Index() {
               className="w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm outline-none focus:border-accent/60" />
             <button type="submit" className="glow-green w-full rounded-xl bg-primary py-2 text-sm font-semibold text-primary-foreground">Add to swarm</button>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className={menuCls}>
-          <DialogHeader><DialogTitle>Settings</DialogTitle></DialogHeader>
-          <div className="space-y-2 text-sm">
-            {agents.map((a) => (
-              <label key={a.id} className="flex items-center gap-3 rounded-lg border border-border bg-secondary/40 px-3 py-2">
-                <span className="[&_svg]:size-4">{iconFor(a.id)}</span>{a.name}
-                <span className="ml-auto text-xs text-muted-foreground">{a.online ? "Online" : "Paused"}</span>
-                <input type="checkbox" checked={a.online} onChange={() => toggleAgent(a.id)} className="accent-[var(--primary)]" />
-              </label>
-            ))}
-          </div>
         </DialogContent>
       </Dialog>
     </div>
